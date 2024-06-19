@@ -1,6 +1,8 @@
 const express = require('express');
 const mongoose = require('mongoose');
 const Person = require('./models/person');
+const crypto = require('crypto');
+const { rejects } = require('assert');
 
 //criar app
 
@@ -10,30 +12,66 @@ const app = express();
 
 app.use(express.urlencoded({
     extended: true,
-}))
+}));
 app.use(express.json());
+
+//função criptografar o cpf
+
+const cipher = {
+    algorithm: 'aes256',
+    secret: 'chave',
+    type: 'hex'
+};
+
+async function getCrypto(cpf) {
+    return new Promise((resolve, reject) => {
+        const cipherStream = crypto.createCipher(cipher.algorithm, cipher.secret);
+        let encryptedData = '';
+
+        cipherStream.on('readable', () => {
+            let chunk;
+            while (null !== (chunk = cipherStream.read())) {
+                encryptedData += chunk.toString(cipher.type);
+            }
+        });
+
+        cipherStream.on('end', () => {
+            resolve(encryptedData);
+        });
+
+        cipherStream.on('error', (error) => {
+            reject(error);
+        });
+
+        cipherStream.write(cpf);
+        cipherStream.end();
+    });
+}
 
 //Rotas
 
 app.post('/person', async (req, res) => {
-    const { name, salary, approved } = req.body
-
-    const person = {
-        name,
-        salary,
-        approved,
-    }
-    // O C do CRUD
-
+    let { name, salary, cpf, approved } = req.body;
     try {
-        await Person.create(person)
+        let encryptedCpf = await getCrypto(cpf);
 
-        res.status(201).json({ message: 'Pessoa inserida no sistema com sucesso!'})
+        const person = {
+            name,
+            salary,
+            cpf: encryptedCpf,
+            approved,
+        };
+
+        try {
+            await Person.create(person);
+            res.status(201).json({ message: 'Pessoa inserida no sistema com sucesso!' });
+        } catch (error) {
+            res.status(500).json({ error: error.message });
+        }
     } catch (error) {
-        res.status(500).json({ erro: error})
+        res.status(500).json({ error: error.message });
     }
-})
-
+});
 // O R do CRUD
 
 app.get('/person', async (req, res) => {
@@ -70,11 +108,12 @@ app.get('/person/:id', async (req, res) => {
 app.patch('/person/:id', async (req, res) => {
     const id = req.params.id
 
-    const { name, salary, approved } = req.body
+    const { name, salary, cpf, approved } = req.body
 
     const person = {
         name,
         salary,
+        cpf,
         approved,
     }
 
